@@ -1,0 +1,19 @@
+[package]
+name = "de"
+version = "0.1.0"
+edition = "2021"
+description = "A self-contained Wayland desktop environment built on smithay"
+license = "MIT"
+
+[dependencies]
+smithay = { version = "0.7", default-features = false, features = [
+    "backend_winit",
+    "backend_egl",
+    "renderer_gl",
+    "wayland_frontend",
+] }
+winit = "0.30"
+
+[profile.release]
+debug = false
+opt-level = 3
