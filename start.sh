@@ -6,6 +6,7 @@
 #
 # If a Wayland/X session is already running, the DE opens as a window inside it.
 # Otherwise it asks for a fullscreen window. A bare TTY/DRM backend is not written yet.
+# Super+Return opens a kitty terminal inside the DE.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -29,11 +30,25 @@ install_system_deps() {
     fi
 }
 
+install_terminal() {
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y kitty
+    elif command -v pacman >/dev/null 2>&1; then
+        sudo pacman -S --needed --noconfirm kitty
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y kitty
+    fi
+}
+
 ensure_system_deps() {
     local pkgs=(wayland-server xkbcommon libinput libseat libudev gbm egl glesv2 libdrm xcursor)
     if ! pkg-config --exists "${pkgs[@]}" 2>/dev/null; then
         log "installing system libraries"
         install_system_deps
+    fi
+    if ! command -v kitty >/dev/null 2>&1; then
+        log "installing kitty"
+        install_terminal
     fi
 }
 
