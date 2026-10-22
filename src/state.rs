@@ -4,6 +4,7 @@ use smithay::{
     backend::renderer::utils::on_commit_buffer_handler,
     delegate_compositor, delegate_seat, delegate_shm, delegate_xdg_shell,
     input::{pointer::CursorImageStatus, Seat, SeatHandler, SeatState},
+    output::Output,
     reexports::{
         wayland_protocols::xdg::shell::server::xdg_toplevel,
         wayland_server::{
@@ -15,6 +16,7 @@ use smithay::{
     utils::{Logical, Serial, Size, SERIAL_COUNTER},
     wayland::{
         buffer::BufferHandler,
+        output::OutputHandler,
         compositor::{CompositorClientState, CompositorHandler, CompositorState},
         shell::xdg::{PopupSurface, PositionerState, ToplevelSurface, XdgShellHandler, XdgShellState},
         shm::{ShmHandler, ShmState},
@@ -35,6 +37,8 @@ impl ClientData for ClientState {
 
 pub struct State {
     pub compositor_state: CompositorState,
+    /// The one monitor. Advertised to clients as wl_output, which GTK and WebKit need.
+    pub output: Output,
     pub xdg_shell_state: XdgShellState,
     pub shm_state: ShmState,
     pub seat_state: SeatState<Self>,
@@ -70,7 +74,17 @@ impl State {
 
     pub fn set_output_size(&mut self, size: Size<i32, Logical>) {
         self.output_size = size;
+        self.output.change_current_state(Some(mode_for(size)), None, None, None);
+        self.output.set_preferred(mode_for(size));
         self.configure_all();
+    }
+}
+
+/// A 60 Hz mode of the given size.
+pub fn mode_for(size: Size<i32, Logical>) -> smithay::output::Mode {
+    smithay::output::Mode {
+        size: (size.w, size.h).into(),
+        refresh: 60_000,
     }
 }
 
@@ -127,6 +141,8 @@ impl ShmHandler for State {
     }
 }
 
+impl OutputHandler for State {}
+
 impl SeatHandler for State {
     type KeyboardFocus = WlSurface;
     type PointerFocus = WlSurface;
@@ -145,3 +161,4 @@ delegate_xdg_shell!(State);
 delegate_compositor!(State);
 delegate_shm!(State);
 delegate_seat!(State);
+smithay::delegate_output!(State);

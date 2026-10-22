@@ -26,15 +26,38 @@ Keys:
 - [x] Milestone 1: compositor window with a built-in "hello world" background and a software cursor
 - [x] Milestone 2: Wayland socket, xdg-shell windows, keyboard and pointer input, kitty launches inside the DE
 - [ ] Milestone 2b: more windows (tiling or stacking), focus by click, resize handling
-- [ ] Milestone 3: built-in panel and launcher
+- [x] Milestone 3a: web-based shell (menu bar, dock) with Apple-style glass UI, themed from ~/LDE/config
+- [ ] Milestone 3b: panel as a layer-shell surface instead of a window, launcher
 - [ ] Milestone 4: network, audio (PipeWire) and Bluetooth (BlueZ) services
 - [ ] Milestone 5: direct TTY/DRM backend, so `start.sh` can take over the whole screen
 
 ## Layout
 
+Everything the desktop uses lives under `~/LDE` (override with `LDE_HOME`):
+
 ```
-src/main.rs     event loop and rendering
-src/state.rs    compositor state and Wayland protocol handlers
-src/assets.rs   built-in bitmap font and cursor
-start.sh        dependency install, build, launch
+~/LDE/
+  config/           all settings: lde.toml (theme, terminal, dock) and apps/*.toml
+  core/             the desktop's own parts: de, lde-shell, ui/ (installed by start.sh)
+  user/             your data; apps get XDG_CONFIG/DATA/CACHE/STATE pointed here
+  apps/             installed applications
+```
+
+`HOME` itself is not moved, because ssh, git and shells depend on it. The XDG variables cover
+most apps.
+
+## Source layout
+
+```
+src/main.rs       compositor: event loop, input, rendering, starts the shell and terminal
+src/state.rs      compositor state and Wayland protocol handlers
+src/assets.rs     built-in bitmap font and cursor
+src/lib.rs        shared code: paths, config, app launching
+src/config.rs     reads ~/LDE/config
+src/paths.rs      the ~/LDE layout
+src/launch.rs     starts apps with the desktop's environment
+src/bin/lde-shell.rs  the shell window (WebKit, built with --features shell)
+ui/               the shell's HTML/CSS/JS, installed to ~/LDE/core/ui
+defaults/config/  default configuration written on first run
+start.sh          dependency install, build, install into ~/LDE/core, run
 ```

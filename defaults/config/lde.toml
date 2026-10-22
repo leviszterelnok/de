@@ -1,0 +1,17 @@
+# LDE configuration. Every setting for the desktop lives in ~/LDE/config.
+# Edit this file, then restart the desktop.
+
+[theme]
+wallpaper_top = "#1b2a36"
+wallpaper_bottom = "#0b0c0e"
+accent = "#1e88c7"
+foreground = "#f2f5f8"
+bar = "rgba(20, 22, 26, 0.55)"
+radius = 14
+
+[session]
+# App id (a file in config/apps without .toml) that Super+Return opens.
+terminal = "kitty"
+
+[dock]
+enabled = true

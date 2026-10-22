@@ -5,14 +5,38 @@ edition = "2021"
 description = "A self-contained Wayland desktop environment built on smithay"
 license = "MIT"
 
+[lib]
+name = "de"
+path = "src/lib.rs"
+
+[[bin]]
+name = "de"
+path = "src/main.rs"
+
+[[bin]]
+name = "lde-shell"
+path = "src/bin/lde-shell.rs"
+required-features = ["shell"]
+
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 smithay = { version = "0.7", default-features = false, features = [
     "backend_winit",
     "backend_egl",
     "renderer_gl",
     "wayland_frontend",
 ] }
+toml = "0.8"
 winit = "0.30"
+
+# The web-based shell (menu bar, dock). Only built with `--features shell`.
+tao = { version = "0.37", optional = true }
+wry = { version = "0.57", optional = true }
+serde_json = "1.0.154"
+
+[features]
+default = []
+shell = ["dep:tao", "dep:wry"]
 
 [profile.release]
 debug = false

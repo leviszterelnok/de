@@ -1,0 +1,4 @@
+name = "Terminal"
+exec = ["kitty"]
+icon = "terminal"
+dock = true

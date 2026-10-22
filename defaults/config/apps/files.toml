@@ -1,0 +1,4 @@
+name = "Files"
+exec = ["xdg-open", "$LDE/user"]
+icon = "folder"
+dock = true

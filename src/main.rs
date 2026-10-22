@@ -1,7 +1,7 @@
 mod assets;
 mod state;
 
-use std::{error::Error, ffi::OsStr, process::Child, sync::Arc};
+use std::{error::Error, ffi::OsStr, path::Path, process::Child, sync::Arc};
 
 use smithay::{
     backend::{
@@ -32,12 +32,12 @@ use smithay::{
 };
 use ::winit::platform::pump_events::PumpStatus;
 
+use de::{config, launch, paths};
 use state::{ClientState, State};
 
 const BACKGROUND: [f32; 4] = [0.07, 0.07, 0.08, 1.0];
 const TEXT_SCALE: usize = 6;
 const CURSOR_SCALE: usize = 2;
-const TERMINAL: &str = "kitty";
 
 /// A drawable buffer plus its size in pixels.
 struct Sprite {
@@ -66,20 +66,64 @@ fn main() -> Result<(), Box<dyn Error>> {
     run(fullscreen)
 }
 
-/// Starts a terminal connected to our socket. The DE's own environment is not changed,
-/// so a nested session keeps its own WAYLAND_DISPLAY.
-fn spawn_terminal(socket: &OsStr, children: &mut Vec<Child>) {
-    match std::process::Command::new(TERMINAL)
-        .env("WAYLAND_DISPLAY", socket)
-        .env_remove("DISPLAY")
-        .spawn()
-    {
+/// Starts the app that `session.terminal` names, connected to our socket.
+fn spawn_terminal(root: &Path, apps: &[config::App], terminal: &str, socket: &OsStr, children: &mut Vec<Child>) {
+    let Some(app) = config::find_app(apps, terminal) else {
+        eprintln!("no app named {terminal:?} in config/apps");
+        return;
+    };
+    match launch::spawn_app(root, app, Some(socket)) {
         Ok(child) => children.push(child),
-        Err(err) => eprintln!("could not start {TERMINAL}: {err}"),
+        Err(err) => eprintln!("could not start {}: {err}", app.name),
     }
 }
 
+/// Starts the shell (menu bar and dock) if its binary sits next to this one.
+fn spawn_shell(root: &Path, socket: &OsStr, children: &mut Vec<Child>) {
+    let Some(path) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.join("lde-shell")))
+        .filter(|path| path.exists())
+    else {
+        eprintln!("lde-shell not built, starting without a shell");
+        return;
+    };
+    let mut command = std::process::Command::new(path);
+    command
+        .env("WAYLAND_DISPLAY", socket)
+        .env("LDE_HOME", root)
+        .env_remove("DISPLAY");
+    for (key, dir) in paths::user_env(root) {
+        command.env(key, dir);
+    }
+    match command.spawn() {
+        Ok(child) => children.push(child),
+        Err(err) => eprintln!("could not start the shell: {err}"),
+    }
+}
+
+/// Makes sure XDG_RUNTIME_DIR is set. A login session always sets it; running the
+/// compositor by hand from a shell sometimes does not, and the Wayland socket needs it.
+fn ensure_runtime_dir() -> Result<(), Box<dyn Error>> {
+    if std::env::var_os("XDG_RUNTIME_DIR").is_some() {
+        return Ok(());
+    }
+    let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
+    let dir = std::env::temp_dir().join(format!("lde-runtime-{user}"));
+    std::fs::create_dir_all(&dir)?;
+    std::fs::set_permissions(&dir, std::os::unix::fs::PermissionsExt::from_mode(0o700))?;
+    std::env::set_var("XDG_RUNTIME_DIR", &dir);
+    Ok(())
+}
+
 fn run(fullscreen: bool) -> Result<(), Box<dyn Error>> {
+    ensure_runtime_dir()?;
+    let root = paths::root();
+    paths::ensure_layout(&root)?;
+    let config = config::load_config(&root)?;
+    let apps = config::load_apps(&root)?;
+    let terminal = config.session.terminal.clone();
+
     let mut display: Display<State> = Display::new()?;
     let mut dh = display.handle();
 
@@ -99,14 +143,34 @@ fn run(fullscreen: bool) -> Result<(), Box<dyn Error>> {
     let keyboard = seat.add_keyboard(Default::default(), 200, 25)?;
     let pointer = seat.add_pointer();
 
+    let output = smithay::output::Output::new(
+        "LDE-0".into(),
+        smithay::output::PhysicalProperties {
+            size: (0, 0).into(),
+            subpixel: smithay::output::Subpixel::Unknown,
+            make: "LDE".into(),
+            model: "Virtual".into(),
+        },
+    );
+    let _output_global = output.create_global::<State>(&dh);
+    let output_size = Size::from((initial_size.w, initial_size.h));
+    output.change_current_state(
+        Some(state::mode_for(output_size)),
+        Some(Transform::Normal),
+        Some(smithay::output::Scale::Integer(1)),
+        Some((0, 0).into()),
+    );
+    output.set_preferred(state::mode_for(output_size));
+
     let mut state = State {
+        output,
         compositor_state: smithay::wayland::compositor::CompositorState::new::<State>(&dh),
         xdg_shell_state: smithay::wayland::shell::xdg::XdgShellState::new::<State>(&dh),
         shm_state: smithay::wayland::shm::ShmState::new::<State>(&dh, vec![]),
         seat_state,
         seat,
         windows: Vec::new(),
-        output_size: Size::from((initial_size.w, initial_size.h)),
+        output_size,
         pointer_location: Point::from((initial_size.w as f64 / 2.0, initial_size.h as f64 / 2.0)),
         spawn_requested: false,
     };
@@ -119,7 +183,8 @@ fn run(fullscreen: bool) -> Result<(), Box<dyn Error>> {
     println!("listening on {}", socket_name.to_string_lossy());
 
     let mut children: Vec<Child> = Vec::new();
-    spawn_terminal(&socket_name, &mut children);
+    spawn_shell(&root, &socket_name, &mut children);
+    spawn_terminal(&root, &apps, &terminal, &socket_name, &mut children);
 
     let hello = sprite(assets::text("hello world", TEXT_SCALE, assets::OCEAN_BLUE));
     let cursor = sprite(assets::cursor(CURSOR_SCALE));
@@ -196,7 +261,7 @@ fn run(fullscreen: bool) -> Result<(), Box<dyn Error>> {
         }
 
         if std::mem::take(&mut state.spawn_requested) {
-            spawn_terminal(&socket_name, &mut children);
+            spawn_terminal(&root, &apps, &terminal, &socket_name, &mut children);
         }
 
         // Accept new clients and process their requests.
